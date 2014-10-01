@@ -19,22 +19,20 @@ from twisted.internet import reactor
 class Adaptor(CbAdaptor):
     def __init__(self, argv):
         logging.basicConfig(filename=CB_LOGFILE,level=CB_LOGGING_LEVEL,format='%(asctime)s %(message)s')
-        self.status = "ok"
-        self.state = "stopped"
+        self.status =           "ok"
+        self.state =            "stopped"
+        self.apps =             {"energy": [],
+                                 "power": [],
+                                 "voltage": [],
+                                 "current": [],
+                                 "power_factor": [],
+                                 "switch": [],
+                                 "conneted": []}
         # super's __init__ must be called:
         #super(Adaptor, self).__init__(argv)
         CbAdaptor.__init__(self, argv)
  
     def setState(self, action):
-        if self.state == "stopped":
-            if action == "starting":
-                self.state = "starting"
-        elif self.state == "starting":
-            if action == "inUse":
-                self.state = "activate"
-        if self.state == "activate":
-            reactor.callLater(0, self.poll)
-            self.state = "running"
         # error is only ever set from the running state, so set back to running if error is cleared
         if action == "error":
             self.state == "error"
@@ -45,15 +43,6 @@ class Adaptor(CbAdaptor):
                "status": "state",
                "state": self.state}
         self.sendManagerMessage(msg)
-
-    def reportState(self, state):
-        logging.debug("%s %s Switch state = %s", ModuleName, self.id, state)
-        msg = {"id": self.id,
-               "timeStamp": time.time(),
-               "content": "switch_state",
-               "data": state}
-        for a in self.apps:
-            self.sendMessage(msg, a)
 
     def sendCharacteristic(self, characteristic, data, timeStamp):
         msg = {"id": self.id,
@@ -77,6 +66,89 @@ class Adaptor(CbAdaptor):
         if found:
             self.setState("inUse")
 
+    def onZwaveMessage(self, message):
+        logging.debug("%s %s onZwaveMessage, message: %s", ModuleName, self.id, str(message))
+        if message["content"] == "init":
+            # Energy - KWh
+            cmd = {"id": self.id,
+                   "request": "get",
+                   "address": self.addr,
+                   "instance": "0",
+                   "commandClass": "50",
+                   "value": "0"
+                  }
+            self.sendZwaveMessage(cmd)
+            # Power - W
+            cmd = {"id": self.id,
+                   "request": "get",
+                   "address": self.addr,
+                   "instance": "0",
+                   "commandClass": "50",
+                   "value": "2"
+                  }
+            self.sendZwaveMessage(cmd)
+            # Voltage
+            cmd = {"id": self.id,
+                   "request": "get",
+                   "address": self.addr,
+                   "instance": "0",
+                   "commandClass": "50",
+                   "value": "4"
+                  }
+            self.sendZwaveMessage(cmd)
+            # Current - A
+            cmd = {"id": self.id,
+                   "request": "get",
+                   "address": self.addr,
+                   "instance": "0",
+                   "commandClass": "50",
+                   "value": "5"
+                  }
+            self.sendZwaveMessage(cmd)
+            # Power Factor
+            cmd = {"id": self.id,
+                   "request": "get",
+                   "address": self.addr,
+                   "instance": "0",
+                   "commandClass": "50",
+                   "value": "6"
+                  }
+            self.sendZwaveMessage(cmd)
+            reactor.callLater(30, self.pollSensors)
+        elif message["content"] == "data":
+            try:
+                if message["commandClass"] == "50":
+                    if message["data"]["name"] == "0":
+                        energy = message["data"]["val"]["value"] 
+                        logging.debug("%s %s onZwaveMessage, energy (KWh): %s", ModuleName, self.id, str(energy))
+                        self.sendCharacteristic("energy", energy, time.time())
+                    elif message["data"]["name"] == "2":
+                        power = message["data"]["val"]["value"] 
+                        logging.debug("%s %s onZwaveMessage, power (W): %s", ModuleName, self.id, str(power))
+                        self.sendCharacteristic("power", power, time.time())
+                    elif message["data"]["name"] == "4":
+                        voltage = message["data"]["val"]["value"] 
+                        logging.debug("%s %s onZwaveMessage, voltage: %s", ModuleName, self.id, str(voltage))
+                        self.sendCharacteristic("voltage", voltage, time.time())
+                    elif message["data"]["name"] == "5":
+                        current = message["data"]["val"]["value"] 
+                        logging.debug("%s %s onZwaveMessage, current: %s", ModuleName, self.id, str(current))
+                        self.sendCharacteristic("current", current, time.time())
+                    elif message["data"]["name"] == "6":
+                        power_factor = message["data"]["val"]["value"] 
+                        logging.debug("%s %s onZwaveMessage, power_factor: %s", ModuleName, self.id, str(power_factor))
+                        self.sendCharacteristic("power_factor", power_factor, time.time())
+                elif message["commandClass"] == "48":
+                    if message["data"]["name"] == "1":
+                        if message["data"]["level"]["value"]:
+                            b = "on"
+                        else:
+                            b = "off"
+                        logging.debug("%s %s onZwaveMessage, alarm: %s", ModuleName, self.id, b)
+                        self.sendCharacteristic("binary_sensor", b, time.time())
+            except:
+                logging.warning("%s %s onZwaveMessage, unexpected message", ModuleName, str(message))
+
     def onOff(self, s):
         if s == "on":
             return "255"
@@ -99,7 +171,13 @@ class Adaptor(CbAdaptor):
         resp = {"name": self.name,
                 "id": self.id,
                 "status": "ok",
-                "service": [{"characteristic": "switch"}],
+                "service": [{"characteristic": "energy", "interval": 60},
+                            {"characteristic": "power", "interval": 60},
+                            {"characteristic": "voltage", "interval": 60},
+                            {"characteristic": "current", "interval": 60},
+                            {"characteristic": "power_factor", "interval": 60},
+                            {"characteristic": "connected", "interval": 60},
+                            {"characteristic": "switch", "interval": 300}],
                 "content": "service"}
         self.sendMessage(resp, message["id"])
         self.setState("running")
