@@ -6,6 +6,7 @@
 # Written by Peter Claydon
 #
 ModuleName = "zwave_power_meter_socket"
+INTERVAL     = 60      # How often to request sensor values
 
 import sys
 import time
@@ -21,13 +22,16 @@ class Adaptor(CbAdaptor):
         logging.basicConfig(filename=CB_LOGFILE,level=CB_LOGGING_LEVEL,format='%(asctime)s %(message)s')
         self.status =           "ok"
         self.state =            "stopped"
+        self.connected =        False
+        self.switchState =      "unknown"
         self.apps =             {"energy": [],
                                  "power": [],
                                  "voltage": [],
                                  "current": [],
                                  "power_factor": [],
+                                 "binary_sensor": [],
                                  "switch": [],
-                                 "conneted": []}
+                                 "connected": []}
         # super's __init__ must be called:
         #super(Adaptor, self).__init__(argv)
         CbAdaptor.__init__(self, argv)
@@ -66,9 +70,34 @@ class Adaptor(CbAdaptor):
         if found:
             self.setState("inUse")
 
+    def pollSensors(self):
+        cmd = {"id": self.id,
+               "request": "post",
+               "address": self.addr,
+               "instance": "0",
+               "commandClass": "50",
+               "action": "Get",
+               "value": ""
+              }
+        self.sendZwaveMessage(cmd)
+        reactor.callLater(INTERVAL, self.pollSensors)
+
+    def checkConnected(self):
+        logging.debug("%s %s checkConneted, updateTime, lastUpdateTime: %s %s", ModuleName, self.id, \
+            str(self.updateTime), str(self.lastUpdateTime))
+        if self.updateTime == self.lastUpdateTime:
+            self.connected = False
+        else:
+            self.connected = True
+        self.sendCharacteristic("connected", self.connected, time.time())
+        self.lastUpdateTime = self.updateTime
+        reactor.callLater(INTERVAL + 10, self.checkConnected)
+
     def onZwaveMessage(self, message):
-        logging.debug("%s %s onZwaveMessage, message: %s", ModuleName, self.id, str(message))
+        #logging.debug("%s %s onZwaveMessage, message: %s", ModuleName, self.id, str(message))
         if message["content"] == "init":
+            self.updateTime = 0
+            self.lastUpdateTime = time.time()
             # Energy - KWh
             cmd = {"id": self.id,
                    "request": "get",
@@ -114,7 +143,17 @@ class Adaptor(CbAdaptor):
                    "value": "6"
                   }
             self.sendZwaveMessage(cmd)
+            # Switch state
+            cmd = {"id": self.id,
+                   "request": "get",
+                   "address": self.addr,
+                   "instance": "0",
+                   "commandClass": "37",
+                   "value": "level"
+                  }
+            self.sendZwaveMessage(cmd)
             reactor.callLater(30, self.pollSensors)
+            reactor.callLater(INTERVAL, self.checkConnected)
         elif message["content"] == "data":
             try:
                 if message["commandClass"] == "50":
@@ -138,14 +177,16 @@ class Adaptor(CbAdaptor):
                         power_factor = message["data"]["val"]["value"] 
                         logging.debug("%s %s onZwaveMessage, power_factor: %s", ModuleName, self.id, str(power_factor))
                         self.sendCharacteristic("power_factor", power_factor, time.time())
-                elif message["commandClass"] == "48":
-                    if message["data"]["name"] == "1":
-                        if message["data"]["level"]["value"]:
+                elif message["commandClass"] == "37":
+                    if message["data"]["name"] == "level":
+                        if message["data"]["value"]:
                             b = "on"
                         else:
                             b = "off"
-                        logging.debug("%s %s onZwaveMessage, alarm: %s", ModuleName, self.id, b)
+                        self.switchState = b
+                        logging.debug("%s %s onZwaveMessage, switch state: %s", ModuleName, self.id, b)
                         self.sendCharacteristic("binary_sensor", b, time.time())
+                self.updateTime = message["data"]["updateTime"]
             except:
                 logging.warning("%s %s onZwaveMessage, unexpected message", ModuleName, str(message))
 
@@ -171,25 +212,39 @@ class Adaptor(CbAdaptor):
         resp = {"name": self.name,
                 "id": self.id,
                 "status": "ok",
-                "service": [{"characteristic": "energy", "interval": 60},
-                            {"characteristic": "power", "interval": 60},
-                            {"characteristic": "voltage", "interval": 60},
-                            {"characteristic": "current", "interval": 60},
-                            {"characteristic": "power_factor", "interval": 60},
-                            {"characteristic": "connected", "interval": 60},
-                            {"characteristic": "switch", "interval": 300}],
+                "service": [{"characteristic": "energy", "interval": INTERVAL, "type": "switch"},
+                            {"characteristic": "power", "interval": INTERVAL, "type": "switch"},
+                            {"characteristic": "voltage", "interval": INTERVAL, "type": "switch"},
+                            {"characteristic": "current", "interval": INTERVAL, "type": "switch"},
+                            {"characteristic": "power_factor", "interval": INTERVAL, "type": "switch"},
+                            {"characteristic": "connected", "interval": INTERVAL, "type": "switch"},
+                            {"characteristic": "binary_sensor", "interval": INTERVAL, "type": "switch"},
+                            {"characteristic": "switch", "interval": 0}],
                 "content": "service"}
         self.sendMessage(resp, message["id"])
         self.setState("running")
 
+    def onAppRequest(self, message):
+        #logging.debug("%s %s %s onAppRequest, message = %s", ModuleName, self.id, self.friendly_name, message)
+        # Switch off anything that already exists for this app
+        for a in self.apps:
+            if message["id"] in self.apps[a]:
+                self.apps[a].remove(message["id"])
+        # Now update details based on the message
+        for f in message["service"]:
+            if message["id"] not in self.apps[f["characteristic"]]:
+                self.apps[f["characteristic"]].append(message["id"])
+        logging.debug("%s %s %s apps: %s", ModuleName, self.id, self.friendly_name, str(self.apps))
+
     def onAppCommand(self, message):
-        #logging.debug("%s %s %s onAppCommand, req = %s", ModuleName, self.id, self.friendly_name, message)
+        logging.debug("%s %s %s onAppCommand, req = %s", ModuleName, self.id, self.friendly_name, message)
         if "data" not in message:
             logging.warning("%s %s %s app message without data: %s", ModuleName, self.id, self.friendly_name, message)
         elif message["data"] != "on" and message["data"] != "off":
             logging.warning("%s %s %s app switch state must be on or off: %s", ModuleName, self.id, self.friendly_name, message)
         else:
-            self.switch(message["data"])
+            if message["data"] != self.switchState:
+                self.switch(message["data"])
 
     def onConfigureMessage(self, config):
         """Config is based on what apps are to be connected.
