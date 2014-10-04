@@ -61,15 +61,6 @@ class Adaptor(CbAdaptor):
         # Mainly caters for situation where adaptor is told to stop while it is starting
         pass
 
-    def checkAllProcessed(self, appID):
-        self.processedApps.append(appID)
-        found = True
-        for a in self.appInstances:
-            if a not in self.processedApps:
-                found = False
-        if found:
-            self.setState("inUse")
-
     def pollSensors(self):
         cmd = {"id": self.id,
                "request": "post",
@@ -83,8 +74,6 @@ class Adaptor(CbAdaptor):
         reactor.callLater(INTERVAL, self.pollSensors)
 
     def checkConnected(self):
-        logging.debug("%s %s checkConneted, updateTime, lastUpdateTime: %s %s", ModuleName, self.id, \
-            str(self.updateTime), str(self.lastUpdateTime))
         if self.updateTime == self.lastUpdateTime:
             self.connected = False
         else:
