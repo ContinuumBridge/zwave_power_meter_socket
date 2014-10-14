@@ -1,0 +1,11 @@
+{
+    "exe": "zwave_power_meter_socket.py", 
+    "protocol": "zwave", 
+    "name": "Zwave Power Meter Socket", 
+    "device_resource": "/api/bridge/v1/device/30/", 
+    "url": "https://github.com/ContinuumBridge/zwave_power_meter_socket/archive/v0.1.1.tar.gz", 
+    "version": "0.1.1", 
+    "provider": "ContinuumBridge", 
+    "adaptor_resource": "/api/bridge/v1/adaptor/24/", 
+    "description": "Power socket with on/off switch that also measures energy, power, current, voltage and power factor."
+}
