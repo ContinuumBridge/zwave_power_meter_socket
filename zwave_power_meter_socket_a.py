@@ -148,23 +148,18 @@ class Adaptor(CbAdaptor):
                 if message["commandClass"] == "50":
                     if message["data"]["name"] == "0":
                         energy = message["data"]["val"]["value"] 
-                        logging.debug("%s %s onZwaveMessage, energy (KWh): %s", ModuleName, self.id, str(energy))
                         self.sendCharacteristic("energy", energy, time.time())
                     elif message["data"]["name"] == "2":
                         power = message["data"]["val"]["value"] 
-                        logging.debug("%s %s onZwaveMessage, power (W): %s", ModuleName, self.id, str(power))
                         self.sendCharacteristic("power", power, time.time())
                     elif message["data"]["name"] == "4":
                         voltage = message["data"]["val"]["value"] 
-                        logging.debug("%s %s onZwaveMessage, voltage: %s", ModuleName, self.id, str(voltage))
                         self.sendCharacteristic("voltage", voltage, time.time())
                     elif message["data"]["name"] == "5":
                         current = message["data"]["val"]["value"] 
-                        logging.debug("%s %s onZwaveMessage, current: %s", ModuleName, self.id, str(current))
                         self.sendCharacteristic("current", current, time.time())
                     elif message["data"]["name"] == "6":
                         power_factor = message["data"]["val"]["value"] 
-                        logging.debug("%s %s onZwaveMessage, power_factor: %s", ModuleName, self.id, str(power_factor))
                         self.sendCharacteristic("power_factor", power_factor, time.time())
                 elif message["commandClass"] == "37":
                     if message["data"]["name"] == "level":
@@ -173,7 +168,6 @@ class Adaptor(CbAdaptor):
                         else:
                             b = "off"
                         self.switchState = b
-                        logging.debug("%s %s onZwaveMessage, switch state: %s", ModuleName, self.id, b)
                         self.sendCharacteristic("binary_sensor", b, time.time())
                 self.updateTime = message["data"]["updateTime"]
             except:
