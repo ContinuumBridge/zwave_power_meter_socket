@@ -1,12 +1,11 @@
 #!/usr/bin/env python
 # zwave_power_meter_socket.py
-# Copyright (C) ContinuumBridge Limited, 2014 - All Rights Reserved
-# Unauthorized copying of this file, via any medium is strictly prohibited
-# Proprietary and confidential
+# Copyright (C) ContinuumBridge Limited, 2014 - 2015
 # Written by Peter Claydon
 #
 ModuleName = "zwave_power_meter_socket"
-INTERVAL     = 60      # How often to request sensor values
+INTERVAL              = 60      # How often to request sensor values
+CHECK_ALIVE_INTERVAL  = 120 
 
 import sys
 import time
@@ -71,13 +70,12 @@ class Adaptor(CbAdaptor):
         reactor.callLater(INTERVAL, self.pollSensors)
 
     def checkConnected(self):
-        if self.updateTime == self.lastUpdateTime:
+        if time.time() - self.updateTime > CHECK_ALIVE_INTERVAL + 60:
             self.connected = False
         else:
             self.connected = True
         self.sendCharacteristic("connected", self.connected, time.time())
-        self.lastUpdateTime = self.updateTime
-        reactor.callLater(INTERVAL + 10, self.checkConnected)
+        reactor.callLater(INTERVAL, self.checkConnected)
 
     def onZwaveMessage(self, message):
         #self.cbLog("debug", "onZwaveMessage, message: " + str(message))
@@ -138,31 +136,40 @@ class Adaptor(CbAdaptor):
                    "value": "level"
                   }
             self.sendZwaveMessage(cmd)
+            # wakeup 
+            cmd = {"id": self.id,
+                   "request": "get",
+                   "address": self.addr,
+                   "instance": "0",
+                   "commandClass": "132",
+                   "value": "lastWakeup"
+                  }
+            self.sendZwaveMessage(cmd)
             reactor.callLater(30, self.pollSensors)
             reactor.callLater(INTERVAL, self.checkConnected)
         elif message["content"] == "data":
             try:
                 if message["commandClass"] == "50":
-                    if message["data"]["name"] == "0":
+                    if message["value"] == "0":
                         energy = message["data"]["val"]["value"] 
                         self.sendCharacteristic("energy", energy, time.time())
-                    elif message["data"]["name"] == "2":
+                    elif message["value"] == "2":
                         power = message["data"]["val"]["value"] 
                         if power > 4000:
                             self.cbLog("info", "onZwaveMessage, power " + str(power) + " set to 4000")
                             power = 4000
                         self.sendCharacteristic("power", power, time.time())
-                    elif message["data"]["name"] == "4":
+                    elif message["value"] == "4":
                         voltage = message["data"]["val"]["value"] 
                         self.sendCharacteristic("voltage", voltage, time.time())
-                    elif message["data"]["name"] == "5":
+                    elif message["value"] == "5":
                         current = message["data"]["val"]["value"] 
                         self.sendCharacteristic("current", current, time.time())
-                    elif message["data"]["name"] == "6":
+                    elif message["value"] == "6":
                         power_factor = message["data"]["val"]["value"] 
                         self.sendCharacteristic("power_factor", power_factor, time.time())
                 elif message["commandClass"] == "37":
-                    if message["data"]["name"] == "level":
+                    if message["value"] == "level":
                         if message["data"]["value"]:
                             b = "on"
                         else:
@@ -196,12 +203,12 @@ class Adaptor(CbAdaptor):
                 "id": self.id,
                 "status": "ok",
                 "service": [{"characteristic": "energy", "interval": INTERVAL, "type": "switch"},
-                            {"characteristic": "power", "interval": INTERVAL, "type": "switch"},
+                            {"characteristic": "power", "interval": 0, "type": "switch"},
                             {"characteristic": "voltage", "interval": INTERVAL, "type": "switch"},
                             {"characteristic": "current", "interval": INTERVAL, "type": "switch"},
                             {"characteristic": "power_factor", "interval": INTERVAL, "type": "switch"},
                             {"characteristic": "connected", "interval": INTERVAL, "type": "switch"},
-                            {"characteristic": "binary_sensor", "interval": INTERVAL, "type": "switch"},
+                            {"characteristic": "binary_sensor", "interval": 0, "type": "switch"},
                             {"characteristic": "switch", "interval": 0}],
                 "content": "service"}
         self.sendMessage(resp, message["id"])
