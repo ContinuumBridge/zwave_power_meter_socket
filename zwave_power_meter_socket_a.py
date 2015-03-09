@@ -158,6 +158,9 @@ class Adaptor(CbAdaptor):
                         if power > 4000:
                             self.cbLog("info", "onZwaveMessage, power " + str(power) + " set to 4000")
                             power = 4000
+                        elif power < -1:
+                            self.cbLog("info", "onZwaveMessage, power " + str(power) + " set to -1")
+                            power = -1
                         self.sendCharacteristic("power", power, time.time())
                     elif message["value"] == "4":
                         voltage = message["data"]["val"]["value"] 
