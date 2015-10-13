@@ -4,8 +4,9 @@
 # Written by Peter Claydon
 #
 ModuleName = "zwave_power_meter_socket"
-INTERVAL              = 60      # How often to request sensor values
-CHECK_ALIVE_INTERVAL  = 120 
+INTERVAL                 = 60         # How often to request sensor values
+CHECK_ALIVE_INTERVAL     = 120 
+TIME_CUTOFF              = 1800       # Data older than this is considered "stale"
 
 import sys
 import time
@@ -29,6 +30,12 @@ class Adaptor(CbAdaptor):
                                  "binary_sensor": [],
                                  "switch": [],
                                  "connected": []}
+        self.lastEnergyTime =    0
+        self.lastPowerTime =     0
+        self.lastVoltageTime =   0
+        self.lastCurrentTime =   0
+        self.lastPowerFactorTime = 0
+        self.lastBinaryTime =    0
         # super's __init__ must be called:
         #super(Adaptor, self).__init__(argv)
         CbAdaptor.__init__(self, argv)
@@ -148,42 +155,61 @@ class Adaptor(CbAdaptor):
             reactor.callLater(30, self.pollSensors)
             reactor.callLater(INTERVAL, self.checkConnected)
         elif message["content"] == "data":
-            try:
+            if True:
+            #try:
                 if message["commandClass"] == "50":
                     if message["value"] == "0":
-                        energy = message["data"]["val"]["value"] 
-                        self.sendCharacteristic("energy", energy, time.time())
+                        updateTime = message["data"]["val"]["updateTime"] 
+                        if updateTime != self.lastEnergyTime and time.time() - updateTime < TIME_CUTOFF:
+                            energy = message["data"]["val"]["value"] 
+                            self.sendCharacteristic("energy", energy, time.time())
+                            self.lastEnergyTime = updateTime
                     elif message["value"] == "2":
-                        power = message["data"]["val"]["value"] 
-                        if power > 4000:
-                            self.cbLog("debug", "onZwaveMessage, power " + str(power) + " set to 0")
-                            self.cbLog("debug", "onZwaveMessage, power message was: " + str(message))
-                            power = 0
-                        elif power < -1:
-                            self.cbLog("debug", "onZwaveMessage, power " + str(power) + " set to -1")
-                            self.cbLog("debug", "onZwaveMessage, power message was: " + str(message))
-                            power = -1
-                        self.sendCharacteristic("power", power, time.time())
+                        updateTime = message["data"]["val"]["updateTime"] 
+                        if updateTime != self.lastPowerTime and time.time() - updateTime < TIME_CUTOFF:
+                            power = message["data"]["val"]["value"] 
+                            if power > 4000:
+                                self.cbLog("debug", "onZwaveMessage, power " + str(power) + " set to 0")
+                                self.cbLog("debug", "onZwaveMessage, power message was: " + str(message))
+                                power = 0
+                            elif power < -1:
+                                self.cbLog("debug", "onZwaveMessage, power " + str(power) + " set to -1")
+                                self.cbLog("debug", "onZwaveMessage, power message was: " + str(message))
+                                power = -1
+                            self.sendCharacteristic("power", power, time.time())
+                            self.lastPowerTime = updateTime
                     elif message["value"] == "4":
-                        voltage = message["data"]["val"]["value"] 
-                        self.sendCharacteristic("voltage", voltage, time.time())
+                        updateTime = message["data"]["val"]["updateTime"] 
+                        if updateTime != self.lastVoltageTime and time.time() - updateTime < TIME_CUTOFF:
+                            voltage = message["data"]["val"]["value"] 
+                            self.sendCharacteristic("voltage", voltage, time.time())
+                            self.lastVoltageTime = updateTime
                     elif message["value"] == "5":
-                        current = message["data"]["val"]["value"] 
-                        self.sendCharacteristic("current", current, time.time())
+                        updateTime = message["data"]["val"]["updateTime"] 
+                        if updateTime != self.lastCurrentTime and time.time() - updateTime < TIME_CUTOFF:
+                            current = message["data"]["val"]["value"] 
+                            self.sendCharacteristic("current", current, time.time())
+                            self.lastCurrentTime = updateTime
                     elif message["value"] == "6":
-                        power_factor = message["data"]["val"]["value"] 
-                        self.sendCharacteristic("power_factor", power_factor, time.time())
+                        updateTime = message["data"]["val"]["updateTime"] 
+                        if updateTime != self.lastPowerFactorTime and time.time() - updateTime < TIME_CUTOFF:
+                            power_factor = message["data"]["val"]["value"] 
+                            self.sendCharacteristic("power_factor", power_factor, time.time())
+                            self.lastPowerFactorTime = updateTime
                 elif message["commandClass"] == "37":
-                    if message["value"] == "level":
-                        if message["data"]["value"]:
-                            b = "on"
-                        else:
-                            b = "off"
-                        self.switchState = b
-                        self.sendCharacteristic("binary_sensor", b, time.time())
+                    updateTime = message["data"]["updateTime"] 
+                    if updateTime != self.lastBinaryTime and time.time() - updateTime < TIME_CUTOFF:
+                        if message["value"] == "level":
+                            if message["data"]["value"]:
+                                b = "on"
+                            else:
+                                b = "off"
+                            self.switchState = b
+                            self.sendCharacteristic("binary_sensor", b, time.time())
+                            self.lastBinaryTime = updateTime
                 self.updateTime = message["data"]["updateTime"]
-            except:
-                self.cbLog("warning", "onZwaveMessage, unexpected message: " + str(message))
+            #except:
+            #    self.cbLog("warning", "onZwaveMessage, unexpected message: " + str(message))
 
     def onOff(self, s):
         if s == "on":
